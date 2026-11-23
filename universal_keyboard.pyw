@@ -3,7 +3,7 @@
 автоматично след интервал / Enter.
 
 Горещи клавиши:
-  Ctrl+Shift+Space  - обърни последната дума (кирилица <-> латиница) и я запомни
+  Ctrl+Space  - обърни последната дума (кирилица <-> латиница) и я запомни
   Ctrl+Alt+K        - пауза / пусни
 
 Стартиране:  pythonw universal_keyboard.pyw      (без прозорец, икона в трея)
@@ -266,7 +266,7 @@ class App:
         ctrl, alt, shift = key_down(VK_CONTROL), key_down(VK_MENU), key_down(VK_SHIFT)
         win = key_down(VK_LWIN) or key_down(VK_RWIN)
 
-        if ctrl and shift and not alt and vk == VK_SPACE:
+        if ctrl and not alt and not win and vk == VK_SPACE:  # Ctrl+Space (or Ctrl+Shift+Space)
             self.flip()
             return True
         if ctrl and alt and vk == ord("K"):
@@ -340,7 +340,7 @@ class App:
         return False
 
     def flip(self) -> None:
-        """Ctrl+Shift+Space: convert / un-convert the last word and remember it."""
+        """Ctrl+Space: convert / un-convert the last word and remember it."""
         if self.chunk:  # in the middle of a word -> force Bulgarian
             word = "".join(self.chunk)
             parts = split_word(word)
@@ -506,7 +506,7 @@ class App:
             return
         self.create_tray()
         self.update_tray("Работи. Пиши на латиница - българските думи стават на кирилица.")
-        log("started; Ctrl+Shift+Space = обърни дума, Ctrl+Alt+K = пауза")
+        log("started; Ctrl+Space = обърни дума, Ctrl+Alt+K = пауза")
 
         msg = wintypes.MSG()
         try:
