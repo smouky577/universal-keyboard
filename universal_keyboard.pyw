@@ -1,6 +1,7 @@
 """Universal Keyboard - пиши на английска подредба, а българските думи,
 написани на латиница (towa, kakvo, 6te, bylgarski ...), стават на кирилица
-автоматично след интервал (Enter и Tab не преобразуват).
+автоматично след интервал или Enter (Tab не преобразува).
+След Enter новият ред започва начисто.
 
 Не работи в Command Prompt, PowerShell и Windows Terminal,
 и не пипа нищо, докато пишеш в поле за парола.
@@ -201,7 +202,7 @@ KEYEVENTF_KEYUP, KEYEVENTF_UNICODE = 0x2, 0x4
 VK_BACK, VK_TAB, VK_RETURN, VK_SHIFT, VK_CONTROL, VK_MENU = 0x08, 0x09, 0x0D, 0x10, 0x11, 0x12
 VK_CAPITAL, VK_ESCAPE, VK_SPACE, VK_LWIN, VK_RWIN = 0x14, 0x1B, 0x20, 0x5B, 0x5C
 NAV_KEYS = {0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x2D, 0x2E, VK_ESCAPE}
-DELIMS = {VK_SPACE: " "}  # only Space converts; Enter and Tab never do
+DELIMS = {VK_SPACE: " ", VK_RETURN: "\n"}  # Space and Enter convert; Tab never does
 MAGIC = 0x55B6_0001  # marks our own injected keystrokes
 WM_TRAY = 0x8000 + 1
 WM_COMMAND = 0x111
@@ -478,7 +479,7 @@ class App:
                 self.chunk.pop()
             self.last = None
             return False
-        if vk in NAV_KEYS or vk in (VK_RETURN, VK_TAB):  # Enter / Tab never convert
+        if vk in NAV_KEYS or vk == VK_TAB:  # Tab never converts
             self.reset()
             return False
         if self.in_password():  # password box: never remember or convert anything
@@ -504,6 +505,13 @@ class App:
         return False
 
     def on_delim(self, vk: int) -> bool:
+        try:
+            return self._convert_last(vk)
+        finally:
+            if vk == VK_RETURN:  # a new line starts with a clean context
+                self.ctx.clear()
+
+    def _convert_last(self, vk: int) -> bool:
         word = "".join(self.chunk)
         self.chunk = []
         self.last = None
