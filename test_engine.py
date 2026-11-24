@@ -70,6 +70,18 @@ MIXED = [
      "и аз идвам с теб"),
     ("send me the report to friday",
      "send me the report to friday"),
+    ("the app crashes kogato natisna butona za login",
+     "the app crashes когато натисна бутона за login"),
+    ("this is the best pizza ever, mnogo e vkusna",
+     "this is the best pizza ever, много е вкусна"),
+    ("mojesh li da mi pomognesh s tozi bug v koda?",
+     "можеш ли да ми помогнеш с този bug в кода?"),
+    ("sega sym zaet, but call me later to talk",
+     "сега съм зает, but call me later to talk"),
+    ("ne znam, maybe we can go to the sea",
+     "не знам, maybe we can go to the sea"),
+    ("this is so cool, da go napravim li",
+     "this is so cool, да го направим ли"),
 ]
 
 
