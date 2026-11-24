@@ -1,6 +1,9 @@
 """Universal Keyboard - пиши на английска подредба, а българските думи,
 написани на латиница (towa, kakvo, 6te, bylgarski ...), стават на кирилица
-автоматично след интервал / Enter.
+автоматично след интервал или Tab (Enter не преобразува).
+
+Не работи в Command Prompt, PowerShell и Windows Terminal,
+и не пипа нищо, докато пишеш в поле за парола.
 
 Горещи клавиши:
   Ctrl+Space  - обърни последната дума (кирилица <-> латиница) и я запомни
@@ -15,6 +18,8 @@ import ctypes
 import os
 import re
 import sys
+import threading
+import time
 import traceback
 from ctypes import wintypes
 
@@ -46,6 +51,8 @@ user32 = ctypes.WinDLL("user32", use_last_error=True)
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
 shell32 = ctypes.WinDLL("shell32", use_last_error=True)
+ole32 = ctypes.OleDLL("ole32")
+oleaut32 = ctypes.WinDLL("oleaut32")
 
 LRESULT = ctypes.c_ssize_t
 ULONG_PTR = ctypes.c_size_t
@@ -105,6 +112,19 @@ class NOTIFYICONDATAW(ctypes.Structure):
                 ("guidItem", GUID), ("hBalloonIcon", wintypes.HICON)]
 
 
+class GUITHREADINFO(ctypes.Structure):
+    _fields_ = [("cbSize", wintypes.DWORD), ("flags", wintypes.DWORD),
+                ("hwndActive", wintypes.HWND), ("hwndFocus", wintypes.HWND),
+                ("hwndCapture", wintypes.HWND), ("hwndMenuOwner", wintypes.HWND),
+                ("hwndMoveSize", wintypes.HWND), ("hwndCaret", wintypes.HWND),
+                ("rcCaret", wintypes.RECT)]
+
+
+class VARIANT(ctypes.Structure):
+    _fields_ = [("vt", ctypes.c_ushort), ("r1", ctypes.c_ushort), ("r2", ctypes.c_ushort),
+                ("r3", ctypes.c_ushort), ("val", ctypes.c_longlong), ("val2", ctypes.c_void_p)]
+
+
 class ICONINFO(ctypes.Structure):
     _fields_ = [("fIcon", wintypes.BOOL), ("xHotspot", wintypes.DWORD), ("yHotspot", wintypes.DWORD),
                 ("hbmMask", wintypes.HBITMAP), ("hbmColor", wintypes.HBITMAP)]
@@ -118,6 +138,18 @@ user32.UnhookWindowsHookEx.argtypes = [wintypes.HHOOK]
 user32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
 user32.GetForegroundWindow.restype = wintypes.HWND
 user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+user32.GetGUIThreadInfo.argtypes = [wintypes.DWORD, ctypes.POINTER(GUITHREADINFO)]
+user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+user32.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
+user32.GetWindowLongW.restype = ctypes.c_long
+user32.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
+user32.GetAncestor.restype = wintypes.HWND
+kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+kernel32.OpenProcess.restype = wintypes.HANDLE
+kernel32.QueryFullProcessImageNameW.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR,
+                                                ctypes.POINTER(wintypes.DWORD)]
+kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+oleaut32.VariantClear.argtypes = [ctypes.POINTER(VARIANT)]
 user32.GetKeyboardLayout.argtypes = [wintypes.DWORD]
 user32.GetKeyboardLayout.restype = ctypes.c_void_p
 user32.ToUnicodeEx.argtypes = [wintypes.UINT, wintypes.UINT, ctypes.POINTER(ctypes.c_ubyte),
@@ -169,7 +201,7 @@ KEYEVENTF_KEYUP, KEYEVENTF_UNICODE = 0x2, 0x4
 VK_BACK, VK_TAB, VK_RETURN, VK_SHIFT, VK_CONTROL, VK_MENU = 0x08, 0x09, 0x0D, 0x10, 0x11, 0x12
 VK_CAPITAL, VK_ESCAPE, VK_SPACE, VK_LWIN, VK_RWIN = 0x14, 0x1B, 0x20, 0x5B, 0x5C
 NAV_KEYS = {0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x2D, 0x2E, VK_ESCAPE}
-DELIMS = {VK_SPACE: " ", VK_RETURN: "\n", VK_TAB: "\t"}
+DELIMS = {VK_SPACE: " ", VK_TAB: "\t"}  # Enter is NOT here: it never converts
 MAGIC = 0x55B6_0001  # marks our own injected keystrokes
 WM_TRAY = 0x8000 + 1
 WM_COMMAND = 0x111
@@ -196,6 +228,136 @@ def split_word(word: str):
 
 def key_down(vk: int) -> bool:
     return bool(user32.GetAsyncKeyState(vk) & 0x8000)
+
+
+# ------------------------------------------------------------------ where are we typing?
+# Command Prompt, PowerShell, Windows Terminal ... -> do nothing there.
+TERMINAL_EXES = {
+    "cmd.exe", "powershell.exe", "pwsh.exe", "powershell_ise.exe", "windowsterminal.exe",
+    "wt.exe", "conhost.exe", "openconsole.exe", "wsl.exe", "bash.exe", "mintty.exe",
+}
+TERMINAL_CLASSES = {"consolewindowclass", "cascadia_hosting_window_class",
+                    "pseudoconsolewindow"}
+ES_PASSWORD = 0x20
+GA_ROOT = 2
+
+
+def class_name(hwnd) -> str:
+    buf = ctypes.create_unicode_buffer(256)
+    user32.GetClassNameW(hwnd, buf, 256)
+    return buf.value
+
+
+def process_exe(hwnd) -> str:
+    """-> lower-case exe name of the window's process ("" if unknown)."""
+    pid = wintypes.DWORD()
+    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    h = kernel32.OpenProcess(0x1000, False, pid.value)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not h:
+        return ""
+    try:
+        buf = ctypes.create_unicode_buffer(1024)
+        size = wintypes.DWORD(1024)
+        if kernel32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(size)):
+            return os.path.basename(buf.value).lower()
+        return ""
+    finally:
+        kernel32.CloseHandle(h)
+
+
+def is_terminal(hwnd) -> bool:
+    if not hwnd:
+        return False
+    root = user32.GetAncestor(hwnd, GA_ROOT) or hwnd
+    if class_name(root).lower() in TERMINAL_CLASSES:
+        return True
+    return process_exe(root) in TERMINAL_EXES
+
+
+def focused_hwnd(hwnd_fg):
+    tid = user32.GetWindowThreadProcessId(hwnd_fg, None)
+    gti = GUITHREADINFO()
+    gti.cbSize = ctypes.sizeof(GUITHREADINFO)
+    if tid and user32.GetGUIThreadInfo(tid, ctypes.byref(gti)):
+        return gti.hwndFocus or hwnd_fg
+    return hwnd_fg
+
+
+def is_win32_password(hwnd_fg) -> bool:
+    """Classic Win32 / WinForms / Delphi edit box with the password style (fast check)."""
+    h = focused_hwnd(hwnd_fg)
+    if not h:
+        return False
+    return "edit" in class_name(h).lower() and bool(user32.GetWindowLongW(h, -16) & ES_PASSWORD)
+
+
+class PasswordWatcher(threading.Thread):
+    """Asks UI Automation whether the focused control is a password box
+    (browsers, WPF, UWP ...). Runs in its own thread so the keyboard hook is never slowed
+    down; the hook only reads `is_password`."""
+
+    UIA_IsPasswordPropertyId = 30019
+
+    def __init__(self) -> None:
+        super().__init__(daemon=True, name="PasswordWatcher")
+        self.is_password = False
+        self.last_activity = 0.0
+        self.wake = threading.Event()
+        self.ok = False
+
+    def poke(self) -> None:
+        """Called on every key press: check now if we were idle."""
+        now = time.monotonic()
+        idle = now - self.last_activity > 1.0
+        self.last_activity = now
+        if idle:
+            self.wake.set()
+
+    @staticmethod
+    def _vcall(ptr, index, argtypes=(), *args):
+        vtbl = ctypes.cast(ptr, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents
+        proto = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, *argtypes)
+        return proto(vtbl[index])(ptr, *args)
+
+    def _check(self, uia) -> bool:
+        el = ctypes.c_void_p()
+        hr = self._vcall(uia, 8, (ctypes.POINTER(ctypes.c_void_p),), ctypes.byref(el))  # IUIAutomation::GetFocusedElement
+        if hr < 0 or not el.value:
+            return False
+        try:
+            v = VARIANT()
+            hr = self._vcall(el, 10, (ctypes.c_int, ctypes.POINTER(VARIANT)),
+                             self.UIA_IsPasswordPropertyId, ctypes.byref(v))  # IUIAutomationElement::GetCurrentPropertyValue
+            if hr < 0:
+                return False
+            result = v.vt == 11 and (v.val & 0xFFFF) != 0  # VT_BOOL, VARIANT_TRUE = -1
+            oleaut32.VariantClear(ctypes.byref(v))
+            return result
+        finally:
+            self._vcall(el, 2)  # Release
+
+    def run(self) -> None:
+        try:
+            ole32.CoInitializeEx(None, 0)  # COINIT_MULTITHREADED
+            clsid, iid = GUID(), GUID()
+            ole32.CLSIDFromString("{FF48DBA4-60EF-4201-AA87-54103EEF594E}", ctypes.byref(clsid))
+            ole32.IIDFromString("{30CBE57D-D9D0-452A-AB13-7AC5AC4825EE}", ctypes.byref(iid))
+            uia = ctypes.c_void_p()
+            ole32.CoCreateInstance(ctypes.byref(clsid), None, 1, ctypes.byref(iid),
+                                   ctypes.byref(uia))
+        except Exception:
+            log("UI Automation not available:", traceback.format_exc())
+            return
+        self.ok = True
+        while True:
+            # check often while the user types, rarely when idle
+            busy = time.monotonic() - self.last_activity < 3.0
+            self.wake.wait(0.15 if busy else 2.0)
+            self.wake.clear()
+            try:
+                self.is_password = self._check(uia)
+            except Exception:
+                self.is_password = False
 
 
 # ------------------------------------------------------------------ sending
@@ -232,6 +394,8 @@ class App:
         self.ctx: str | None = None
         self.last: dict | None = None
         self.hwnd_fg = None
+        self.in_terminal = False
+        self.pw = PasswordWatcher()
         self.tray_hwnd = None
         self._icons = {}
 
@@ -241,6 +405,14 @@ class App:
         self.last = None
         if not keep_ctx:
             self.ctx = None
+
+    def in_password(self) -> bool:
+        if self.pw.is_password:
+            return True
+        try:
+            return is_win32_password(self.hwnd_fg)
+        except Exception:
+            return False
 
     @staticmethod
     def fg_layout():
@@ -266,9 +438,6 @@ class App:
         ctrl, alt, shift = key_down(VK_CONTROL), key_down(VK_MENU), key_down(VK_SHIFT)
         win = key_down(VK_LWIN) or key_down(VK_RWIN)
 
-        if ctrl and not alt and not win and vk == VK_SPACE:  # Ctrl+Space (or Ctrl+Shift+Space)
-            self.flip()
-            return True
         if ctrl and alt and vk == ord("K"):
             self.set_enabled(not self.enabled)
             return True
@@ -277,10 +446,26 @@ class App:
         if vk in (VK_SHIFT, VK_CONTROL, VK_MENU, VK_CAPITAL, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5):
             return False
 
+        self.pw.poke()
         hwnd, hkl = self.fg_layout()
         if hwnd != self.hwnd_fg:
             self.hwnd_fg = hwnd
             self.reset(keep_ctx=False)
+            try:
+                self.in_terminal = is_terminal(hwnd)
+            except Exception:
+                self.in_terminal = False
+            if self.in_terminal and DEBUG:
+                log("terminal window -> off")
+        if self.in_terminal:  # cmd / PowerShell / Windows Terminal: don't touch anything
+            self.reset()
+            return False
+        if ctrl and not alt and not win and vk == VK_SPACE:  # Ctrl+Space (or Ctrl+Shift+Space)
+            if self.in_password():
+                self.reset()
+                return False
+            self.flip()
+            return True
         if ctrl or alt or win:
             self.reset()
             return False
@@ -293,7 +478,10 @@ class App:
                 self.chunk.pop()
             self.last = None
             return False
-        if vk in NAV_KEYS:
+        if vk in NAV_KEYS or vk == VK_RETURN:  # Enter never converts
+            self.reset()
+            return False
+        if self.in_password():  # password box: never remember or convert anything
             self.reset()
             return False
         if vk in DELIMS:
@@ -504,6 +692,7 @@ class App:
         if not kb_hook:
             log("SetWindowsHookEx failed", ctypes.get_last_error())
             return
+        self.pw.start()
         self.create_tray()
         self.update_tray("Работи. Пиши на латиница - българските думи стават на кирилица.")
         log("started; Ctrl+Space = обърни дума, Ctrl+Alt+K = пауза")
