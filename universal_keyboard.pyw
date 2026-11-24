@@ -47,6 +47,15 @@ def log(*a) -> None:
         pass
 
 
+def debug_console(*a) -> None:
+    """Only with --debug, only on the screen. Typed words never go to a file."""
+    if DEBUG:
+        try:
+            print(" ".join(str(x) for x in a), flush=True)
+        except Exception:
+            pass
+
+
 # ------------------------------------------------------------------ Win32 API
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -527,7 +536,7 @@ class App:
         if any(c in suf for c in SENTENCE_END):
             self.ctx.clear()
         if DEBUG:
-            log(f"{core!r:20} -> {r['lang']} {r['score']:6} {r['cyr']}")
+            debug_console(f"{core!r:20} -> {r['lang']} {r['score']:6} {r['cyr']}")
         cyr_full = pre + r["cyr"] + suf
         self.last = {"latin": word, "cyr": cyr_full, "core": core, "delim": vk,
                      "converted": False}
@@ -565,7 +574,7 @@ class App:
             self.engine.learn(last["core"], "bg")
             self.ctx.set_last("bg")
         last["converted"] = not last["converted"]
-        log("learned", last["core"], self.ctx.value)
+        debug_console("learned", last["core"], self.ctx.value)
 
     # ------------------------------------------------------------ tray
     def make_icon(self, on: bool):
