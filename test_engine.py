@@ -1,7 +1,7 @@
 """Quick check of the detector: python test_engine.py"""
 import sys
 
-from uk.engine import Engine
+from uk.engine import SENTENCE_END, Context, Engine
 
 sys.stdout.reconfigure(encoding="utf-8")
 
@@ -30,14 +30,81 @@ SENTENCES = [
 
 e = Engine()
 for s in SENTENCES:
-    ctx = None
+    ctx = Context()
     out = []
     for w in s.split():
-        r = e.analyze(w, ctx)
+        core = w.rstrip(",.?!")
+        r = e.analyze(core, ctx.value)
         if r["lang"] == "bg":
-            out.append(r["cyr"])
+            out.append(r["cyr"] + w[len(core):])
         else:
             out.append(w)
         if r["lang"]:
-            ctx = r["lang"]
+            ctx.push(r["lang"])
+        if w[-1] in SENTENCE_END:
+            ctx.clear()
     print(f"{s}\n  -> {' '.join(out)}")
+
+
+# Mixed Bulgarian / English sentences with the expected result.
+MIXED = [
+    ("zdravei, iskash li da otidem na meeting utre sutrinta?",
+     "здравей, искаш ли да отидем на meeting утре сутринта?"),
+    ("towa e mnogo dobro idea, no trqbwa da pitam",
+     "това е много добро idea, но трябва да питам"),
+    ("kupih si nov laptop, ama battery e slabo",
+     "купих си нов laptop, ама battery е слабо"),
+    ("hello Ivan, kak si I hope you are doing well",
+     "hello Ivan, как си I hope you are doing well"),
+    ("kak si? I hope you are well",
+     "как си? I hope you are well"),
+    ("6te sum na call v 3 4asa, sled towa sum free",
+     "ще съм на call в 3 часа, след това съм free"),
+    ("the server is down, 6te go restartiram sled malko",
+     "the server is down, ще го рестартирам след малко"),
+    ("please send me the file, blagodarq mnogo",
+     "please send me the file, благодаря много"),
+    ("obicham da gledam movies v petuk wecher",
+     "обичам да гледам movies в петък вечер"),
+    ("i az idvam s teb",
+     "и аз идвам с теб"),
+    ("send me the report to friday",
+     "send me the report to friday"),
+    ("the app crashes kogato natisna butona za login",
+     "the app crashes когато натисна бутона за login"),
+    ("this is the best pizza ever, mnogo e vkusna",
+     "this is the best pizza ever, много е вкусна"),
+    ("mojesh li da mi pomognesh s tozi bug v koda?",
+     "можеш ли да ми помогнеш с този bug в кода?"),
+    ("sega sym zaet, but call me later to talk",
+     "сега съм зает, but call me later to talk"),
+    ("ne znam, maybe we can go to the sea",
+     "не знам, maybe we can go to the sea"),
+    ("this is so cool, da go napravim li",
+     "this is so cool, да го направим ли"),
+]
+
+
+def convert(sentence: str) -> str:
+    ctx = Context()
+    out = []
+    for w in sentence.split():
+        core = w.rstrip(",.?!")
+        r = e.analyze(core, ctx.value)
+        out.append(r["cyr"] + w[len(core):] if r["lang"] == "bg" else w)
+        if r["lang"]:
+            ctx.push(r["lang"])
+        if w[-1] in SENTENCE_END:
+            ctx.clear()
+    return " ".join(out)
+
+
+print("\nСмесени изречения:")
+bad = 0
+for src, want in MIXED:
+    got = convert(src)
+    ok = got == want
+    bad += not ok
+    print(f"{'OK ' if ok else 'ГРЕШКА'} {src}\n       -> {got}" + ("" if ok else f"\n  трябва {want}"))
+print(f"\n{len(MIXED) - bad}/{len(MIXED)} верни")
+sys.exit(1 if bad else 0)
