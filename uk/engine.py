@@ -361,8 +361,8 @@ class Engine:
             return res
         if w.strip("'") != w:
             return res
-        # A lone capital "I" is almost always English
-        if word == "I" and context != "bg":
+        # A lone capital "I" is English ("I hope ..."). Lower-case "i" can still be "и".
+        if word == "I":
             res["lang"] = "en"
             return res
 
@@ -399,6 +399,51 @@ class Engine:
         res["score"] = round(s, 2)
         res["lang"] = "bg" if s > 0 else "en"
         return res
+
+
+class Context:
+    """Language of the last few words of the current sentence.
+
+    After a Bulgarian word the context is Bulgarian ("6te go ..." -> "ще го").
+    One English word inside a Bulgarian sentence ("dobro idea, no ...") does not switch
+    it to English: then the last 4 words vote, the most recent ones count more.
+    A sentence end (. ? !) starts from scratch.
+    """
+
+    WEIGHTS = (1.0, 0.8, 0.6, 0.4)
+
+    def __init__(self) -> None:
+        self.hist: list[str] = []
+
+    def clear(self) -> None:
+        self.hist = []
+
+    def push(self, lang: str) -> None:
+        self.hist.insert(0, lang)
+        del self.hist[len(self.WEIGHTS):]
+
+    def set_last(self, lang: str) -> None:
+        """The last word was flipped with Ctrl+Space."""
+        if self.hist:
+            self.hist[0] = lang
+        else:
+            self.push(lang)
+
+    @property
+    def value(self) -> str | None:
+        if not self.hist:
+            return None
+        if self.hist[0] == "bg":
+            return "bg"
+        score = sum(w if lang == "bg" else -w for w, lang in zip(self.WEIGHTS, self.hist))
+        if score > 0:
+            return "bg"
+        if score < 0:
+            return "en"
+        return None
+
+
+SENTENCE_END = ".?!"
 
 
 def default_user_file() -> str:

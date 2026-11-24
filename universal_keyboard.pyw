@@ -24,7 +24,7 @@ import traceback
 from ctypes import wintypes
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from uk.engine import Engine, default_user_file  # noqa: E402
+from uk.engine import SENTENCE_END, Context, Engine, default_user_file  # noqa: E402
 
 DEBUG = "--debug" in sys.argv
 APPDIR = os.path.dirname(default_user_file())
@@ -391,7 +391,7 @@ class App:
         self.engine = Engine(default_user_file())
         self.enabled = True
         self.chunk: list[str] = []
-        self.ctx: str | None = None
+        self.ctx = Context()
         self.last: dict | None = None
         self.hwnd_fg = None
         self.in_terminal = False
@@ -404,7 +404,7 @@ class App:
         self.chunk = []
         self.last = None
         if not keep_ctx:
-            self.ctx = None
+            self.ctx.clear()
 
     def in_password(self) -> bool:
         if self.pw.is_password:
@@ -513,9 +513,11 @@ class App:
         if not parts or "@" in word or "/" in word:
             return False
         pre, core, suf = parts
-        r = self.engine.analyze(core, self.ctx)
+        r = self.engine.analyze(core, self.ctx.value)
         if r["lang"]:
-            self.ctx = r["lang"]
+            self.ctx.push(r["lang"])
+        if any(c in suf for c in SENTENCE_END):
+            self.ctx.clear()
         if DEBUG:
             log(f"{core!r:20} -> {r['lang']} {r['score']:6} {r['cyr']}")
         cyr_full = pre + r["cyr"] + suf
@@ -538,7 +540,7 @@ class App:
             cyr = self.engine.transliterate(core)[0]
             send_replace(len(word), pre + cyr + suf, None)
             self.engine.learn(core, "bg")
-            self.ctx = "bg"
+            self.ctx.push("bg")
             self.chunk = []
             self.last = None
             return
@@ -549,13 +551,13 @@ class App:
         if last["converted"]:
             send_replace(len(last["cyr"]) + 1, last["latin"] + " ", None)
             self.engine.learn(last["core"], "en")
-            self.ctx = "en"
+            self.ctx.set_last("en")
         else:
             send_replace(len(last["latin"]) + 1, last["cyr"] + " ", None)
             self.engine.learn(last["core"], "bg")
-            self.ctx = "bg"
+            self.ctx.set_last("bg")
         last["converted"] = not last["converted"]
-        log("learned", last["core"], self.ctx)
+        log("learned", last["core"], self.ctx.value)
 
     # ------------------------------------------------------------ tray
     def make_icon(self, on: bool):
