@@ -315,10 +315,24 @@ class Engine:
                 best, best_sc, best_exact, best_stem = cand, sc, exact, stem
         return self._restore_case(word, best), best_exact, best_stem
 
+    def _c_as_ch(self, word: str) -> tuple[str, bool, bool]:
+        """Best transliteration where some single "c" (not "ch") is read as ч."""
+        best = ("", False, False)
+        for i, ch in enumerate(word):
+            if ch not in "cC" or word[i + 1:i + 2] in ("h", "H"):
+                continue
+            r = self.transliterate(word[:i] + ("4" if ch == "c" else "~") + word[i + 1:])
+            r = (self._restore_case(word, r[0]), r[1], r[2])
+            if r[1]:
+                return r
+            if r[2] and not best[2]:
+                best = r
+        return best
+
     # -------------------------------------------------------------- features
     _EN_FEATS = [
         (re.compile(r"th"), -2.5), (re.compile(r"wh"), -3.0), (re.compile(r"ph"), -2.0),
-        (re.compile(r"qu"), -3.0), (re.compile(r"ck"), -2.5), (re.compile(r"tion"), -3.0),
+        (re.compile(r"qu"), -3.0), (re.compile(r"ck(?![aio]$)"), -2.5), (re.compile(r"tion"), -3.0),
         (re.compile(r"ing$"), -2.5), (re.compile(r"ough"), -3.0), (re.compile(r"gh"), -2.0),
         (re.compile(r"ee"), -1.2), (re.compile(r"oo"), -1.0), (re.compile(r"ou"), -1.2),
         (re.compile(r"ea"), -0.8), (re.compile(r"ly$"), -1.0), (re.compile(r"ed$"), -0.8),
@@ -330,7 +344,7 @@ class Engine:
         (re.compile(r"[`\[\]\\]"), 5.0),
         (re.compile(r"q(?!u)"), 3.0),
         (re.compile(r"zh|sht|6t|yy|iq|yq"), 2.0),
-        (re.compile(r"(ite|ata|iata|qta|ovo|ski|ska|sko|shte|ahme|ahte|ihme|ihte|yat|qt|ish|ash|iq)$"), 1.2),
+        (re.compile(r"(ite|ata|iata|qta|ovo|ski|ska|sko|cki|cka|cko|shte|ahme|ahte|ihme|ihte|yat|qt|ish|ash|iq)$"), 1.2),
         (re.compile(r"w[bcdfgklmnprstvz]|[bcdfgklmnprstz]w"), 1.5),
         (re.compile(r"[bcdfgklmnprstvz]y[bcdfgklmnprstvz]"), 0.8),
         (re.compile(r"^(v|s|k|ot|na|za|po|pri|bez|pre|raz|iz|do)[bcdfgklmnprstvz]"), 0.4),
@@ -370,6 +384,12 @@ class Engine:
             res["lang"] = "en"
             return res
         cyr, bg_exact, bg_stem = self.transliterate(word)
+        if not bg_exact and "c" in w:
+            # "pricina" = причина: c written for ч (č without the hook). Only take it
+            # when that gives a known word, so "cvete" stays цвете.
+            alt, alt_exact, alt_stem = self._c_as_ch(word)
+            if alt_exact or (alt_stem and not bg_stem):
+                cyr, bg_exact, bg_stem = alt, alt_exact, alt_stem
         res["cyr"] = cyr
         if w in self.user_bg:
             res["lang"] = "bg"

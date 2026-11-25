@@ -102,6 +102,10 @@ MIXED = [
     # y = ъ or й; ьо comes from "yo"
     ("moyat shofyor kaza, che kyde e bulyona",
      "моят шофьор каза, че къде е бульона"),
+    # "-cki" is Bulgarian, not English "ck"; c written for ч ("pricina")
+    ("grycki ezik", "гръцки език"),
+    ("no ne go hvana po nyakakva pricina", "но не го хвана по някаква причина"),
+    ("cvete i nacin", "цвете и начин"),
 ]
 
 
