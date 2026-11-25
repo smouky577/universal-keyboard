@@ -99,6 +99,9 @@ MIXED = [
      "не знам, maybe we can go to the sea"),
     ("this is so cool, da go napravim li",
      "this is so cool, да го направим ли"),
+    # y = ъ or й; ьо comes from "yo"
+    ("moyat shofyor kaza, che kyde e bulyona",
+     "моят шофьор каза, че къде е бульона"),
 ]
 
 
