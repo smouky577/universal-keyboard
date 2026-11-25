@@ -106,6 +106,8 @@ MIXED = [
     ("grycki ezik", "гръцки език"),
     ("no ne go hvana po nyakakva pricina", "но не го хвана по някаква причина"),
     ("cvete i nacin", "цвете и начин"),
+    ("vecerta cakam ucitelq na ulicata", "вечерта чакам учителя на улицата"),
+    ("the police cancel the dance, no cash", "the police cancel the dance, no cash"),
 ]
 
 
