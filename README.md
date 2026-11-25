@@ -16,6 +16,14 @@ hello my friend, how are you            ->  hello my friend, how are you
 Клавишите от фонетичната подредба също работят: `` ` `` = ч, `[` = ш, `]` = щ, `\` = ю
 (със Shift: Ч, Ш, Щ, Ю).
 
+## Сваляне
+
+**[⬇ Свали Universal Keyboard (ZIP)](https://github.com/smouky577/universal-keyboard/releases/latest/download/universal-keyboard.zip)**
+
+Разархивирай папката някъде (например в `Документи`) и пусни `start.bat`.
+Нужен е [Python 3](https://www.python.org/downloads/) (при инсталиране отметни „Add Python to PATH“).
+Други версии: [всички издания](https://github.com/smouky577/universal-keyboard/releases).
+
 ## Стартиране
 
 ```powershell
