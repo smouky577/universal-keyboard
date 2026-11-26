@@ -467,5 +467,7 @@ SENTENCE_END = ".?!"
 
 
 def default_user_file() -> str:
-    base = os.environ.get("APPDATA") or os.path.expanduser("~")
+    # Windows: %APPDATA%; Linux: ~/.config
+    base = (os.environ.get("APPDATA") or os.environ.get("XDG_CONFIG_HOME")
+            or os.path.join(os.path.expanduser("~"), ".config"))
     return os.path.join(base, "UniversalKeyboard", "user_words.json")
