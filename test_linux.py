@@ -52,15 +52,28 @@ def press(kc, mods=()):
     x11.XFlush(dpy)
 
 
+def hold(kc, seconds=0.15):
+    """Like a person: the key is still down while the program reacts to it."""
+    xtst.XTestFakeKeyEvent(dpy, kc, 1, 0)
+    x11.XFlush(dpy)
+    time.sleep(seconds)
+    xtst.XTestFakeKeyEvent(dpy, kc, 0, 0)
+    x11.XFlush(dpy)
+
+
 def type_text(text: str):
     for ch in text:
         if ch == "\n":
-            press(RET)
+            hold(RET)
             time.sleep(0.35)
             continue
         kc, shift = KC[ch]
+        if ch == " ":
+            hold(kc)
+            time.sleep(0.15)
+            continue
         press(kc, (SHIFT,) if shift else ())
-        time.sleep(0.25 if ch == " " else 0.06)
+        time.sleep(0.06)
     time.sleep(0.2)
 
 

@@ -299,6 +299,16 @@ class X:
         self.spare_lru: list[str] = []
         self.injected = 0                 # how many of our own key presses are still on their way
         self.refresh_keymap()
+        # Space and Enter are typed again on their own spare keys: the real key is usually
+        # still held down at that moment, and X ignores a second press of a held key.
+        self.alt: dict[int, int] = {}
+        for sym, names in ((XK["space"], ("space",)), (XK["Return"], ("Return", "KP_Enter"))):
+            if self.spare:
+                kc = self.spare.pop()
+                x11.XChangeKeyboardMapping(self.dpy, kc, 2, (c_ulong * 2)(sym, sym), 1)
+                for n in names:
+                    self.alt[self.kc[n]] = kc
+        x11.XSync(self.dpy, 0)
         self._init_xi()
 
     def _on_error(self, dpy, ev) -> int:
@@ -333,7 +343,7 @@ class X:
             self.spare = self.spare[-24:]  # keep a few free for other programs
 
     def restore_spare(self) -> None:
-        for kc in self.spare_map.values():
+        for kc in list(self.spare_map.values()) + list(set(self.alt.values())):
             x11.XChangeKeyboardMapping(self.dpy, kc, 2, (c_ulong * 2)(0, 0), 1)
         self.spare_map.clear()
         x11.XSync(self.dpy, 0)
@@ -452,7 +462,7 @@ class X:
                     shift = not shift
                 self.tap(kc, shift)
         if delim is not None:
-            self.tap(delim)
+            self.tap(self.alt.get(delim, delim))
         x11.XSync(self.dpy, 0)
 
     # ------------------------------------------------------------ windows
@@ -628,6 +638,10 @@ class App:
     def pass_through(self, kc: int, mods: int) -> None:
         """Give a grabbed key to the window after all."""
         x = self.x
+        if kc in x.alt:
+            x.tap(x.alt[kc])  # the spare key is not grabbed
+            x11.XSync(x.dpy, 0)
+            return
         x.grab(kc, mods, False)
         x.tap(kc)
         x11.XSync(x.dpy, 0)
