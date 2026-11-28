@@ -34,7 +34,8 @@ import time
 import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from uk.engine import SENTENCE_END, Context, Engine, default_user_file  # noqa: E402
+from uk.engine import (SENTENCE_END, Context, Engine, default_user_file,  # noqa: E402
+                       is_mixed, resume_word, split_mixed)
 
 DEBUG = "--debug" in sys.argv
 # --test: also react to synthetic (XTEST) keys, so test_linux.py can type for real.
@@ -590,6 +591,8 @@ class App:
         if kc == x.kc["BackSpace"]:
             if self.chunk:
                 self.chunk.pop()
+            else:  # deletes the space after the last word: follow that word again
+                self.chunk = resume_word(self.last)
             self.last = None
             return
         if kc in x.nav:  # Tab never converts
@@ -654,11 +657,17 @@ class App:
         self.last = None
         if not word:
             return False
-        parts = split_word(word)
-        if not parts or "@" in word or "/" in word:
+        if "@" in word or "/" in word:
             return False
-        pre, core, suf = parts
-        r = self.engine.analyze(core, self.ctx.value)
+        if is_mixed(word):  # a converted word fixed with Backspace ("бъде[е")
+            pre, core, suf = split_mixed(word)
+            r = {"lang": "bg", "cyr": self.engine.convert_mixed(core), "score": 99}
+        else:
+            parts = split_word(word)
+            if not parts:
+                return False
+            pre, core, suf = parts
+            r = self.engine.analyze(core, self.ctx.value)
         if r["lang"]:
             self.ctx.push(r["lang"])
         if any(c in suf for c in SENTENCE_END):
@@ -680,11 +689,15 @@ class App:
         x = self.x
         if self.chunk:  # in the middle of a word -> force Bulgarian
             word = "".join(self.chunk)
-            parts = split_word(word)
-            if not parts:
-                return
-            pre, core, suf = parts
-            cyr = self.engine.transliterate(core)[0]
+            if is_mixed(word):
+                pre, core, suf = split_mixed(word)
+                cyr = self.engine.convert_mixed(core)
+            else:
+                parts = split_word(word)
+                if not parts:
+                    return
+                pre, core, suf = parts
+                cyr = self.engine.transliterate(core)[0]
             x.send_replace(len(word), pre + cyr + suf, None)
             self.engine.learn(core, "bg")
             self.ctx.push("bg")

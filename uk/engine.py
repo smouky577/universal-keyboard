@@ -122,8 +122,9 @@ _OPTS: dict[str, list[tuple[str, float]]] = {
     "yo": [("йо", 0.0), ("ьо", -0.5)],
     "ia": [("ия", 0.0), ("я", -0.6)],
     "iu": [("ю", 0.0), ("ию", -0.8)],
-    "ja": [("я", -0.4), ("жа", 0.0)],
-    "ju": [("ю", -0.4), ("жу", 0.0)],
+    # j is ж (phonetic keyboard, "kaja"); "ja" = я only when that gives a known word ("moja")
+    "ja": [("я", -4.5), ("жа", 0.0)],
+    "ju": [("ю", -4.5), ("жу", 0.0)],
     "a": [("а", 0.0), ("ъ", -1.3)],
     "b": [("б", 0.0)],
     "c": [("ц", 0.0)],
@@ -159,6 +160,9 @@ _OPTS: dict[str, list[tuple[str, float]]] = {
     "\\": [("ю", 0.0)],
 }
 _MAXKEY = max(len(k) for k in _OPTS)
+# ъ almost never follows a vowel: there "y" is й ("boyler", "moy", "kray")
+_CYR_VOWELS = set("аеиоуъюя")
+_Y_AFTER_VOWEL = [("й", 0.0), ("ъ", -1.5)]
 
 _BG_SUFFIXES = sorted(
     """ите ата ята ото ето ът ят та то те а я и о е ия ият ията ии ове ища ски ска ско ски
@@ -168,6 +172,33 @@ _BG_SUFFIXES = sorted(
 _EN_SUFFIXES = ["ings", "ing", "ies", "ied", "ers", "est", "ed", "es", "er", "ly", "s", "d"]
 
 _LATIN_WORD = re.compile(r"^[a-z0-9'`\[\]\\]+$")
+_CYR = re.compile(r"[Ѐ-ӿ]")
+_LATIN_IN_WORD = re.compile(r"[A-Za-z`~\[\]{}\\|]")
+
+
+def is_mixed(word: str) -> bool:
+    """Cyrillic and Latin letters in one word: a converted word fixed with Backspace."""
+    return bool(_CYR.search(word) and _LATIN_IN_WORD.search(word))
+
+
+_PUNCT_PRE = "\"'(«„"
+_PUNCT_SUF = ",.?!:;\"')»“"
+
+
+def split_mixed(word: str) -> tuple[str, str, str]:
+    """-> (prefix, core, suffix) for a mixed word: punctuation around it stays as is."""
+    core = word.lstrip(_PUNCT_PRE)
+    pre = word[:len(word) - len(core)]
+    body = core.rstrip(_PUNCT_SUF)
+    return pre, body, core[len(body):]
+
+
+def resume_word(last: dict | None) -> list[str]:
+    """Backspace right after a word and its space: the word is on the screen again, in
+    front of the cursor, exactly as it was left (converted or not). Follow it again."""
+    if not last or not last.get("space"):
+        return []
+    return list(last["cyr"] if last["converted"] else last["latin"])
 
 
 class Engine:
@@ -190,6 +221,8 @@ class Engine:
             self.cyr_model.train(w)
             for st in range(len(_STYLES)):
                 self.bg_lat.train(cyr_to_lat(w, st))
+            if "й" in w:  # й is also written "y" ("moy", "boyler")
+                self.bg_lat.train(cyr_to_lat(w.replace("й", "y"), 0))
         for w in self.en:
             if "'" not in w:
                 self.en_lat.train(w, 3)
@@ -218,6 +251,8 @@ class Engine:
                       ensure_ascii=False, indent=1)
 
     def learn(self, word: str, lang: str) -> None:
+        if _CYR.search(word):  # a half-converted word fixed with Backspace: not a word to keep
+            return
         w = word.lower()
         if lang == "bg":
             self.user_en.discard(w)
@@ -287,6 +322,8 @@ class Engine:
                     opts = _OPTS.get(chunk)
                     if not opts:
                         continue
+                    if chunk == "y" and prefix and prefix[-1] in _CYR_VOWELS:
+                        opts = _Y_AFTER_VOWEL
                     matched = True
                     for cyr, pen in opts:
                         new = prefix + cyr
@@ -328,6 +365,17 @@ class Engine:
             if r[2] and not best[2]:
                 best = r
         return best
+
+    def convert_mixed(self, word: str) -> str:
+        """A converted word fixed with Backspace ("бъде[е"): keep the Cyrillic letters,
+        convert the Latin ones. The word is Bulgarian already, so no language check."""
+        if not _LATIN_IN_WORD.search(word):
+            return word
+        out = self.transliterate(word)[0]
+        cyr = [c for c in word if _CYR.match(c)]
+        if len(cyr) > 1 and all(c.isupper() for c in cyr):
+            out = out.upper()
+        return out
 
     # -------------------------------------------------------------- features
     _EN_FEATS = [
