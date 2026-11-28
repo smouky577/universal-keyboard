@@ -55,7 +55,8 @@ MIXED = [
     ("kupih si nov laptop, ama battery e slabo",
      "купих си нов laptop, ама battery е слабо"),
     ("hello Ivan, kak si I hope you are doing well",
-     "hello Иван, как си I hope you are doing well"),  # a name, on the border: either is fine
+     ("hello Иван, как си I hope you are doing well",  # a name, on the border: either is fine
+      "hello Ivan, как си I hope you are doing well")),
     ("6te hodim na more prez iuli", "ще ходим на море през юли"),
     ("rojdeniqt mi den e na 5 yuni", "рожденият ми ден е на 5 юни"),
     ("tova e moqta liubima pesen", "това е моята любима песен"),
@@ -108,6 +109,15 @@ MIXED = [
     ("cvete i nacin", "цвете и начин"),
     ("vecerta cakam ucitelq na ulicata", "вечерта чакам учителя на улицата"),
     ("the police cancel the dance, no cash", "the police cancel the dance, no cash"),
+    # j = ж ("ja" is not я unless that gives a known word); y after a vowel = й
+    ("garaja", "гаража"),
+    ("kolata e v garaja", "колата е в гаража"),
+    ("boyler", "бойлер"),
+    ("boylera ne raboti", "бойлера не работи"),
+    ("moja priqtelka", "моя приятелка"),
+    ("moy kray, tvoy kray", "мой край, твой край"),
+    ("prewejda go kato prewejda", "превежда го като превежда"),
+    ("the boy is happy, enjoy", "the boy is happy, enjoy"),
 ]
 
 
@@ -129,8 +139,29 @@ print("\nСмесени изречения:")
 bad = 0
 for src, want in MIXED:
     got = convert(src)
-    ok = got == want
+    wants = want if isinstance(want, tuple) else (want,)
+    ok = got in wants
+    want = wants[0]
     bad += not ok
     print(f"{'OK ' if ok else 'ГРЕШКА'} {src}\n       -> {got}" + ("" if ok else f"\n  трябва {want}"))
 print(f"\n{len(MIXED) - bad}/{len(MIXED)} верни")
+
+# A converted word fixed with Backspace: the Cyrillic part stays, the new Latin letters
+# are converted ("бъдеше" -> Backspace x2 -> "бъде]е" -> "бъдеще").
+EDITED = [
+    ("бъде]е", "бъдеще"),
+    ("бъдеshtе", "бъдеще"),
+    ("бъде[е", "бъдеше"),  # what was typed is kept, even if it is not a word
+    ("бъде]e", "бъдеще"),
+    ("Бъде]е", "Бъдеще"),
+    ("БЪДЕ]Е", "БЪДЕЩЕ"),
+    ("гараja", "гаража"),
+    ("кат", "кат"),  # nothing Latin: nothing to do
+]
+print("\nПоправени с Backspace:")
+for src, want in EDITED:
+    got = e.convert_mixed(src)
+    ok = got == want
+    bad += not ok
+    print(f"{'OK ' if ok else 'ГРЕШКА'} {src} -> {got}" + ("" if ok else f"   трябва {want}"))
 sys.exit(1 if bad else 0)
